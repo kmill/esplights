@@ -2,7 +2,9 @@
 #include <Stream.h>
 #include <cstdint>
 
-enum { TSTATE_START, TSTATE_IAC, TSTATE_READ, TSTATE_BUFFER, TSTATE_WILL, TSTATE_WONT, TSTATE_DO, TSTATE_DONT, TSTATE_SB, TSTATE_EOL };
+enum { TSTATE_START, TSTATE_IAC, TSTATE_READ, TSTATE_BUFFER,
+       TSTATE_WILL, TSTATE_WONT, TSTATE_DO, TSTATE_DONT,
+       TSTATE_SB, TSTATE_EOL };
 
 #define TELNET_IAC 255
 #define TELNET_SE 240
@@ -24,18 +26,19 @@ enum { TSTATE_START, TSTATE_IAC, TSTATE_READ, TSTATE_BUFFER, TSTATE_WILL, TSTATE
 #define TELNET_CR 13
 #define TELNET_LF 10
 
-WiFiClientTTY::WiFiClientTTY(WiFiClient client) :
-  _client(client),
-  telnetState(TSTATE_START)
+#define TELNET_OPT_ECHO 1
+#define TELNET_OPT_SGA 3
+
+WiFiClientTTY::WiFiClientTTY(WiFiClient client)
+  : _client(client),
+    telnetState(TSTATE_START),
+    _negotiations()
 {
   client.setNoDelay(true);
 
-  // TODO handle negotiation properly
-  // echo
-  sendWill(1);
-  sendDont(1);
-  // suppress go ahead
-  sendDo(3);
+  sendWill(TELNET_OPT_ECHO);
+  sendDont(TELNET_OPT_ECHO);
+  sendWill(TELNET_OPT_SGA);
 }
 
 bool WiFiClientTTY::connected() {
@@ -48,32 +51,107 @@ void WiFiClientTTY::flush() {
   _client.flush();
 }
 size_t WiFiClientTTY::write(uint8_t c) {
-  if (c == '\n') {
-    _client.write(TELNET_CR);
-    return _client.write(TELNET_LF);
+  uint8_t buffer[2];
+  switch(c) {
+  case '\n':
+    buffer[0] = TELNET_CR;
+    buffer[1] = TELNET_LF;
+    return _client.write(buffer, 2) > 0;
+  case '\r':
+    buffer[0] = TELNET_CR;
+    buffer[1] = 0;
+    return _client.write(buffer, 2) > 0;
+  case TELNET_IAC:
+    buffer[0] = TELNET_IAC;
+    buffer[1] = TELNET_IAC;
+    return _client.write(buffer, 2) > 0;
+  default:
+    return _client.write(c);
   }
-  if (c == '\r') {
-    _client.write(TELNET_CR);
-    return _client.write((uint8_t)0);
-  }
-  if (c == TELNET_IAC) {
-    _client.write(TELNET_IAC);
-    // return value not quite correct in escaped case
-  }
-  return _client.write(c);
 }
 size_t WiFiClientTTY::write(const uint8_t *buffer, size_t size) {
+  size_t tsize = telnet_buffer_size(buffer, size);
+
+  if (tsize == size) {
+    return _client.write(buffer, size);
+  }
+
+  uint8_t *buffer2 = nullptr;
+  if (tsize <= sizeof(free_buffer)) {
+    buffer2 = free_buffer;
+  } else {
+    buffer2 = static_cast<uint8_t *>(malloc(tsize));
+  }
+  if (!buffer2) {
+    // fallback
+    for (size_t i = 0; i < size; i++) {
+      if (!write(buffer[i])) {
+        return i;
+      }
+    }
+    return size;
+  }
+  size_t j = 0; // index into buffer2
   for (size_t i = 0; i < size; i++) {
-    if (buffer[i] == TELNET_IAC || buffer[i] == TELNET_CR || buffer[i] == TELNET_LF) {
-      size_t out = 0;
-      for (size_t j = 0;
-           j < size && write(buffer[j]);
-           j++, out++);
-      return out;
+    switch(buffer[i]) {
+    case '\n':
+      buffer2[j++] = TELNET_CR;
+      buffer2[j++] = TELNET_LF;
+      break;
+    case '\r':
+      buffer2[j++] = TELNET_CR;
+      buffer2[j++] = 0;
+      break;
+    case TELNET_IAC:
+      buffer2[j++] = TELNET_IAC;
+      buffer2[j++] = TELNET_IAC;
+      break;
+    default:
+      buffer2[j++] = buffer[i];
+      break;
     }
   }
-  return _client.write(buffer, size);
+  size_t twritten = _client.write(buffer2, tsize);
+  if (buffer2 != free_buffer) {
+    free(buffer2);
+  }
+  if (twritten < tsize) {
+    // estimate how many bytes were written. partially written escapes count
+    size_t ts = 0;
+    size_t written = 0;
+    for (; ts < twritten; written++) {
+      switch(buffer[written]) {
+      case '\n':
+      case '\r':
+      case TELNET_IAC:
+        ts += 2;
+        break;
+      default:
+        ts += 1;
+        break;
+      }
+    }
+    return written;
+  }
+  return size;
 }
+
+size_t WiFiClientTTY::telnet_buffer_size(const uint8_t *buffer, size_t size) {
+  size_t tsize = size;
+  for (size_t i = 0; i < size; i++) {
+    switch (buffer[i]) {
+    case '\n':
+    case '\r':
+    case TELNET_IAC:
+      tsize += 1;
+      break;
+    default:
+      break;
+    }
+  }
+  return tsize;
+}
+
 int WiFiClientTTY::available() {
   handleTelnet();
   return telnetState == TSTATE_BUFFER || (telnetState == TSTATE_READ && _client.available());
@@ -165,6 +243,7 @@ void WiFiClientTTY::handleTelnet() {
         break;
 
       case TELNET_AYT:
+        dumpNegotiations(); // A hack: using AYT to show current status over serial.
         _read();
         _client.write(7); // BEL
         telnetState = TSTATE_START;
@@ -221,27 +300,25 @@ void WiFiClientTTY::handleTelnet() {
 
     case TSTATE_WILL:
       telnetCode = _read();
-      Serial.printf("telnet: WILL %d\n", telnetCode);
-      sendDont(telnetCode);
+      recvWill(telnetCode);
       telnetState = TSTATE_START;
       break;
 
     case TSTATE_WONT:
       telnetCode = _read();
-      Serial.printf("telnet: WONT %d\n", telnetCode);
-      sendDont(telnetCode);
+      recvWont(telnetCode);
       telnetState = TSTATE_START;
       break;
 
     case TSTATE_DO:
       telnetCode = _read();
-      Serial.printf("telnet: DO %d\n", telnetCode);
+      recvDo(telnetCode);
       telnetState = TSTATE_START;
       break;
 
     case TSTATE_DONT:
       telnetCode = _read();
-      Serial.printf("telnet: DONT %d\n", telnetCode);
+      recvDont(telnetCode);
       telnetState = TSTATE_START;
       break;
 
@@ -262,34 +339,134 @@ void WiFiClientTTY::handleTelnet() {
   }
 }
 
+void WiFiClientTTY::recvDo(uint8_t code) {
+  Serial.printf("telnet: DO %d\n", code);
+  if (code == TELNET_OPT_ECHO) {
+    sendWill(TELNET_OPT_ECHO);
+  } else if (code == TELNET_OPT_SGA) {
+    sendWill(TELNET_OPT_SGA);
+  } else {
+    sendWont(code);
+  }
+}
+void WiFiClientTTY::recvDont(uint8_t code) {
+  Serial.printf("telnet: DONT %d\n", code);
+  sendWont(code);
+}
+void WiFiClientTTY::recvWill(uint8_t code) {
+  Serial.printf("telnet: WILL %d\n", code);
+  if (code == TELNET_OPT_SGA) {
+    sendDo(TELNET_OPT_SGA);
+  } else {
+    sendDont(code);
+  }
+}
+void WiFiClientTTY::recvWont(uint8_t code) {
+  Serial.printf("telnet: WONT %d\n", code);
+  sendDont(code);
+}
+
 void WiFiClientTTY::sendDo(uint8_t code) {
+  for (size_t i = 0; i < _negotiations.size(); i++) {
+    auto pair = _negotiations.at(i);
+    if (pair.first == code) {
+      if (pair.second == TELNET_DO) {
+        return;
+      } else if (pair.second == TELNET_DONT) {
+        return;
+      }
+    }
+  }
+  _negotiations.push_back(std::make_pair(code, TELNET_DO));
+
   uint8_t buffer[3];
   buffer[0] = TELNET_IAC;
   buffer[1] = TELNET_DO;
   buffer[2] = code;
   _client.write(buffer, 3);
+
+  Serial.printf("telnet: sent DO %d\n", code);
 }
 
 void WiFiClientTTY::sendDont(uint8_t code) {
+  for (size_t i = 0; i < _negotiations.size(); i++) {
+    auto pair = _negotiations.at(i);
+    if (pair.first == code) {
+      if (pair.second == TELNET_DO) {
+        pair.second = TELNET_DONT;
+        goto skip;
+      } else if (pair.second == TELNET_DONT) {
+        return;
+      }
+    }
+  }
+  _negotiations.push_back(std::make_pair(code, TELNET_DONT));
+ skip:
   uint8_t buffer[3];
   buffer[0] = TELNET_IAC;
   buffer[1] = TELNET_DONT;
   buffer[2] = code;
   _client.write(buffer, 3);
+
+  Serial.printf("telnet: sent DONT %d\n", code);
 }
 
 void WiFiClientTTY::sendWill(uint8_t code) {
+  for (size_t i = 0; i < _negotiations.size(); i++) {
+    auto pair = _negotiations.at(i);
+    if (pair.first == code) {
+      if (pair.second == TELNET_WILL) {
+        return;
+      } else if (pair.second == TELNET_WONT) {
+        return;
+      }
+    }
+  }
+  _negotiations.push_back(std::make_pair(code, TELNET_WILL));
+
   uint8_t buffer[3];
   buffer[0] = TELNET_IAC;
   buffer[1] = TELNET_WILL;
   buffer[2] = code;
   _client.write(buffer, 3);
+
+  Serial.printf("telnet: sent WILL %d\n", code);
 }
 
 void WiFiClientTTY::sendWont(uint8_t code) {
+  for (size_t i = 0; i < _negotiations.size(); i++) {
+    auto pair = _negotiations.at(i);
+    if (pair.first == code) {
+      if (pair.second == TELNET_WILL) {
+        pair.second = TELNET_WONT;
+        goto skip;
+      } else if (pair.second == TELNET_WONT) {
+        return;
+      }
+    }
+  }
+  _negotiations.push_back(std::make_pair(code, TELNET_WONT));
+ skip:
   uint8_t buffer[3];
   buffer[0] = TELNET_IAC;
   buffer[1] = TELNET_WONT;
   buffer[2] = code;
   _client.write(buffer, 3);
+
+  Serial.printf("telnet: sent WONT %d\n", code);
+}
+
+void WiFiClientTTY::dumpNegotiations() {
+  Serial.println("-------");
+  for (auto p = _negotiations.begin(); p != _negotiations.end(); ++p) {
+    Serial.printf("%d ", p->first);
+    switch (p->second) {
+    case TELNET_WILL: Serial.printf("WILL"); break;
+    case TELNET_WONT: Serial.printf("WONT"); break;
+    case TELNET_DO: Serial.printf("DO"); break;
+    case TELNET_DONT: Serial.printf("DONT"); break;
+    }
+    Serial.println();
+  }
+  Serial.println("-------");
 }

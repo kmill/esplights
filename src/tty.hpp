@@ -4,6 +4,8 @@
 #include <HardwareSerial.h>
 #include <WiFiClient.h>
 #include <cstdint>
+#include <vector>
+#include <utility>
 
 class TTY : public Stream {
 public:
@@ -68,6 +70,15 @@ private:
   void handleTelnet();
   uint8_t telnetState;
   uint8_t telnetCode;
+  /**
+     list of pairs of {option,do/dont/will/wont} from our point of view.
+   */
+  std::vector<std::pair<uint8_t, uint8_t>> _negotiations;
+
+  void recvDo(uint8_t code);
+  void recvDont(uint8_t code);
+  void recvWill(uint8_t code);
+  void recvWont(uint8_t code);
 
   void sendDo(uint8_t code);
   void sendDont(uint8_t code);
@@ -76,4 +87,13 @@ private:
 
   int _read();
   int _peek();
+
+  void dumpNegotiations();
+
+  /**
+     Gives the size of a buffer needed to escape the string for telnet.
+   */
+  static size_t telnet_buffer_size(const uint8_t *buffer, size_t size);
+
+  uint8_t free_buffer[128];
 };
