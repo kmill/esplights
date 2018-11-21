@@ -1,6 +1,7 @@
 #include "terminal.hpp"
 #include<vector>
 #include<cstring>
+#include<time.h>
 
 TerminalTask::TerminalTask(const char *name, std::shared_ptr<TTY> tty) : Task(name) {
   setTTY(tty);
@@ -17,8 +18,8 @@ TerminalTask::~TerminalTask() {
 }
 
 void TerminalTask::showPrompt() {
-  uint32_t time = unixTime();
-  int s = time % 60; int _m = time / 60;
+  uint32_t t = time(nullptr);
+  int s = t % 60; int _m = t / 60;
   int m = _m % 60; int _h = _m / 60;
   int h = _h % 24;
   tty->printf("%2u:%02u:%02u> ", h, m, s);

@@ -4,6 +4,7 @@
 #include <ESP8266mDNS.h>
 #include <ESP8266WebServer.h>
 #include <FS.h>
+#include <time.h>
 
 #include <WiFiUdp.h>
 
@@ -35,9 +36,9 @@ public:
     setActive(true);
   }
   void run() override {
-    uint32_t time = unixTime();
-    tty->printf("unix time is %lu; ", time);
-    int s = time % 60; int _m = time / 60;
+    uint32_t t = time(nullptr);
+    tty->printf("unix time is %lu; ", t);
+    int s = t % 60; int _m = t / 60;
     int m = _m % 60; int _h = _m / 60;
     int h = _h % 24;
     tty->printf("%2u:%02u:%02u\n", h, m, s);
