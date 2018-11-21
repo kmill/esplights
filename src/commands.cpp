@@ -227,6 +227,66 @@ static int cmd_rgb(int argc, char **argv) {
   return 0;
 }
 
+int iclamp(int x, int lo, int hi) {
+  if (x < lo) {
+    return lo;
+  } else if (x > hi) {
+    return hi;
+  } else {
+    return x;
+  }
+}
+
+class TwinkleTask : public LightTask {
+public:
+  TwinkleTask()
+    : LightTask("twinkle")
+  {
+    targets = new RgbColor[seg->length()]();
+  }
+  ~TwinkleTask() {
+    delete[] targets;
+  }
+  void update() override {
+    int upspeed = 4;
+    int downspeed = 2;
+    for (size_t j = 0; j < seg->length(); j++) {
+      RgbColor c = seg->get(j);
+      RgbColor c2 = targets[j];
+      if (c.R < c2.R || c.G < c2.G || c.B < c2.B) {
+        if (c.R < c2.R) {
+          c.R = iclamp(c.R + upspeed, 0, 255);
+        }
+        if (c.G < c2.G) {
+          c.G = iclamp(c.G + upspeed, 0, 255);
+        }
+        if (c.B < c2.B) {
+          c.B = iclamp(c.B + upspeed, 0, 255);
+        }
+      } else {
+        c.R = iclamp((int)c.R - downspeed, 0, 255);
+        c.G = iclamp((int)c.G - downspeed, 0, 255);
+        c.B = iclamp((int)c.B - downspeed, 0, 255);
+        c2 = c;
+      }
+      seg->set(j, c);
+      targets[j] = c2;
+    }
+    uint16_t r = random(100) + random(100) + random(100);
+    if (r < 150) {
+      uint16_t i = random(seg->length());
+      targets[i] = HsbColor{static_cast<float>(random(1000)/1000.0), 1.0, 1.0};
+    }
+    seg->send();
+  }
+private:
+  RgbColor *targets;
+};
+int cmd_twinkle(int argc, char **argv) {
+  new TwinkleTask();
+  return 0;
+}
+
 void initialize_commands() {
   add_command("print_args", cmd_print_args);
   add_command("tasks", cmd_tasks);
@@ -238,4 +298,5 @@ void initialize_commands() {
   add_command("stop", cmd_stop);
   add_command("rgb", cmd_rgb);
   add_command("rainbow", cmd_rainbow);
+  add_command("twinkle", cmd_twinkle);
 }
