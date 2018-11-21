@@ -1,0 +1,17 @@
+#pragma once
+
+#ifndef M_WIFI_SSID
+#define M_WIFI_SSID "my_ssid"
+#endif
+
+#ifndef M_WIFI_PASSWORD
+#define M_WIFI_PASSWORD "wifipassword123"
+#endif
+
+#ifndef M_OTA_PASS
+#define M_OTA_PASS "secrets-over-the-air"
+#endif
+
+#ifndef M_MDNS_HOSTNAME
+#define M_MDNS_HOSTNAME "esplights"
+#endif
