@@ -2,6 +2,9 @@
 #include <Stream.h>
 #include <cstdint>
 
+// TELNET rfc https://tools.ietf.org/html/rfc854
+// option rfcs https://www.iana.org/assignments/telnet-options/telnet-options.xhtml
+
 enum { TSTATE_START, TSTATE_IAC, TSTATE_READ, TSTATE_BUFFER,
        TSTATE_WILL, TSTATE_WONT, TSTATE_DO, TSTATE_DONT,
        TSTATE_SB, TSTATE_EOL };
