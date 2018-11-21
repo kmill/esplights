@@ -242,7 +242,10 @@ public:
   TwinkleTask()
     : LightTask("twinkle")
   {
-    targets = new RgbColor[seg->length()]();
+    targets = new RgbColor[seg->length()];
+    for (size_t i = 0; i < seg->length(); i++) {
+      targets[i] = 0;
+    }
   }
   ~TwinkleTask() {
     delete[] targets;
@@ -255,13 +258,13 @@ public:
       RgbColor c2 = targets[j];
       if (c.R < c2.R || c.G < c2.G || c.B < c2.B) {
         if (c.R < c2.R) {
-          c.R = iclamp(c.R + upspeed, 0, 255);
+          c.R = iclamp(c.R + upspeed, 0, c2.R);
         }
         if (c.G < c2.G) {
-          c.G = iclamp(c.G + upspeed, 0, 255);
+          c.G = iclamp(c.G + upspeed, 0, c2.G);
         }
         if (c.B < c2.B) {
-          c.B = iclamp(c.B + upspeed, 0, 255);
+          c.B = iclamp(c.B + upspeed, 0, c2.B);
         }
       } else {
         c.R = iclamp((int)c.R - downspeed, 0, 255);
