@@ -2,7 +2,6 @@
 #include <ESP8266WiFi.h>
 #include <WiFiClient.h>
 #include <ESP8266mDNS.h>
-#include <ESP8266WebServer.h>
 #include <FS.h>
 #include <time.h>
 
@@ -15,6 +14,7 @@
 #include "ota.hpp"
 #include "lights.hpp"
 #include "commands.hpp"
+#include "http.hpp"
 
 #include "config.hpp"
 
@@ -26,8 +26,6 @@
 const char *MDNS_HOSTNAME = macro_xstr(M_MDNS_HOSTNAME);
 
 const int OSC_PORT = 8000;
-
-//ESP8266WebServer httpServer(80);
 
 class TimeSayerTask : public Task {
 public:
@@ -44,10 +42,6 @@ public:
     tty->printf("%2u:%02u:%02u\n", h, m, s);
   }
 };
-
-
-/*void httpHandleRoot();
-  void httpHandleNotFound();*/
 
 void setup() {
   Serial.begin(115200);
@@ -89,6 +83,8 @@ void setup() {
   initializeOTA(MDNS_HOSTNAME, M_OTA_PASS);
 
   /// HTTP ///
+
+  initialize_http();
 
   /*
   httpServer.on("/", HTTP_GET, httpHandleRoot);

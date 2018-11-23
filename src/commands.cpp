@@ -239,7 +239,7 @@ int iclamp(int x, int lo, int hi) {
 
 class TwinkleTask : public LightTask {
 public:
-  TwinkleTask()
+  TwinkleTask(int upspeed = 4, int downspeed = 2)
     : LightTask("twinkle")
   {
     targets = new RgbColor[seg->length()];

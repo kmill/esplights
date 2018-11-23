@@ -1,0 +1,64 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.41.0/codemirror.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.41.0/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.41.0/mode/xml/xml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.41.0/mode/javascript/javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.41.0/addon/mode/loadmode.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.41.0/mode/meta.min.js"></script>
+    <script type="text/javascript">
+      "use strict";
+      var editor;
+      var modeInput;
+      var change;
+
+      CodeMirror.modeURL = "https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.41.0/mode/%N/%N.js";
+
+      window.addEventListener('load', function() {
+
+        editor = CodeMirror.fromTextArea(document.getElementById("editor"), {
+          lineNumbers: true
+        });
+        modeInput = document.getElementById("mode");
+        CodeMirror.on(modeInput, "keypress", function(e) {
+          if (e.keyCode === 13) change();
+        });
+        change = function() {
+          var val = modeInput.value;
+          var m, mode, spec;
+          if (m = /.+\.([^.]+)$/.exec(val)) {
+            const info = CodeMirror.findModeByExtension(m[1]);
+            if (info) {
+              mode = info.mode;
+              spec = info.mime;
+            }
+          } else if (/\//.test(val)) {
+            const info = CodeMirror.findModeByMIME(val);
+            if (info) {
+              mode = info.mode;
+              spec = val;
+            }
+          } else {
+            mode = spec = val;
+          }
+          if (mode) {
+            editor.setOption("mode", spec);
+            CodeMirror.autoLoadMode(editor, mode);
+            document.getElementById("modeinfo").textContent = spec;
+          } else {
+            console.log("Could not find a mode corresponding to " + val);
+          }
+        };
+      }, false);
+    </script>
+  </head>
+  <body>
+    <p style="color: gray">Mode: <span id="modeinfo">text/plain</span></p>
+    <form>
+      <textarea id="editor"></textarea>
+    </form>
+    <p>Filename, mime, or mode name: <input type=text value=foo.js id=mode><button type=button onclick="change()">change mode</button></p>
+  </body>
+</html>
