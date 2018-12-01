@@ -33,7 +33,7 @@ static int cmd_tasks(int argc, char **argv) {
       if (t->get_interval() > 0) {
         cur_tty->printf(" (every %u us", t->get_interval());
         if (t->get_active()) {
-          cur_tty->printf("; scheduled for %u)", t->get_scheduled());
+          cur_tty->printf("; scheduled for %u", t->get_scheduled());
         }
         cur_tty->printf(")");
       }
@@ -119,6 +119,7 @@ public:
     detach();
     setIntervalFPS(fps);
     setActive(true);
+    setBackground(true);
   }
   void run() override {
     if (!seg->isActive()) {
@@ -227,6 +228,23 @@ static int cmd_rgb(int argc, char **argv) {
   return 0;
 }
 
+static int cmd_hsb(int argc, char **argv) {
+  if (argc != 4) {
+    cur_tty->printf("%s h s b", argv[0]);
+    return 1;
+  }
+  float h, s, b;
+  h = clamp(atof(argv[1]), 0.0, 1.0);
+  s = clamp(atof(argv[2]), 0.0, 1.0);
+  b = clamp(atof(argv[3]), 0.0, 1.0);
+  auto seg = requestLEDSegment();
+  for (size_t i = 0; i < seg->length(); i++) {
+    seg->set(i, HsbColor{h, s, b});
+  }
+  seg->send(true);
+  return 0;
+}
+
 int iclamp(int x, int lo, int hi) {
   if (x < lo) {
     return lo;
@@ -290,6 +308,100 @@ int cmd_twinkle(int argc, char **argv) {
   return 0;
 }
 
+class FireTask : public LightTask {
+public:
+  FireTask(size_t rows, float decay, float heat, float loss, float keep, float fps)
+    : LightTask("fire", fps)
+  {
+    width = seg->length();
+    this->rows = rows;
+    fire = new uint8_t[(width+2)*rows];
+
+    _decay = static_cast<unsigned int>(decay * 256);
+    _heat = static_cast<unsigned int>(heat * 256);
+    _loss = static_cast<unsigned int>(256 * loss);
+    _keep = static_cast<unsigned int>(256 * keep);
+  }
+  ~FireTask() {
+    delete[] fire;
+  }
+  void update() override {
+    for (size_t j = 1; j <= width; j++) {
+      fire[width*(rows-1) + j] = fire[width*(rows-1) + j] * _decay / 256;
+      if (static_cast<unsigned int>(random(256)) <= _heat) {
+        fire[width*(rows-1) + j] = 100+random(256-100);
+      }
+    }
+    for (size_t i = 0; i+1 < rows; i++) {
+      for (size_t j = 1; j <= width; j++) {
+        unsigned int sum = 0;
+        sum += fire[width*(i+1) + j-1];
+        sum += fire[width*(i+1) + j];
+        sum += fire[width*(i+1) + j+1];
+        if (i+2 < rows) {
+          sum += fire[width*(i+2) + j];
+        }
+        sum *= (256-_keep);
+        sum += _keep * fire[width*i + j];
+        fire[width*i + j] = sum / _loss;
+      }
+    }
+    for (size_t j = 1; j <= width; j++) {
+      seg->set(j-1, palette(fire[j]));
+    }
+    seg->send();
+  }
+  RgbColor palette(uint8_t value) {
+    double f = value/255.0;
+    return HsbColor(f*(0.1-0.015) + 0.015, 1.0, std::min(1.0, f*2.0));
+  }
+private:
+  size_t width;
+  size_t rows;
+  uint8_t *fire; // i*width + j for row i column j.
+
+  unsigned int _decay;
+  unsigned int _heat;
+  unsigned int _loss;
+  unsigned int _keep;
+};
+
+static int cmd_fire(int argc, char **argv) {
+  size_t rows = 10;
+  float decay = 0.9;
+  float heat = 0.1;
+  float loss = 4.0;
+  float keep = 0.2;
+  float fps = 22;
+  for (char **arg = &argv[1]; *arg; ) {
+    if (strcmp(*arg, "-r") == 0) {
+      arg++;
+      rows = static_cast<size_t>(std::max(2, std::min(25, atoi(*arg++))));
+    } else if (strcmp(*arg, "-d") == 0) {
+      arg++;
+      decay = atof(*arg++);
+    } else if (strcmp(*arg, "-e") == 0) {
+      arg++;
+      heat = atof(*arg++);
+    } else if (strcmp(*arg, "-l") == 0) {
+      arg++;
+      loss = atof(*arg++);
+    } else if (strcmp(*arg, "-k") == 0) {
+      arg++;
+      keep = atof(*arg++);
+    } else if (strcmp(*arg, "-f") == 0) {
+      arg++;
+      fps = atof(*arg++);
+    } else {
+      cur_tty->printf("%s [-r rows] [-d decay] [-e heat] [-l loss] [-k keep] [-f fps]\n", argv[0]);
+      cur_tty->printf("rows is 2-25\ndecay is 0.0-1.0\nheat is 0.0-1.0\nloss is 1.0 or more\nkeep is 0.0-1.0\n");
+      return 1;
+    }
+  }
+  new FireTask(rows, decay, heat, loss, keep, fps);
+  return 0;
+}
+
 void initialize_commands() {
   add_command("print_args", cmd_print_args);
   add_command("tasks", cmd_tasks);
@@ -300,6 +412,8 @@ void initialize_commands() {
   add_command("clear", cmd_clear);
   add_command("stop", cmd_stop);
   add_command("rgb", cmd_rgb);
+  add_command("hsb", cmd_hsb);
   add_command("rainbow", cmd_rainbow);
   add_command("twinkle", cmd_twinkle);
+  add_command("fire", cmd_fire);
 }

@@ -12,6 +12,11 @@ In the future it will have
 * an HTTP server
 * an OSC server
 
+There also will potentially be cooperative multitasking using `cont_t`
+and `yield()` (see `core_esp8266_main.cpp` from the ESP8266 Arduino
+library).  However, it will take some care to make sure there are no
+resource leaks when killing such a task.
+
 ## Getting started
 
 These instructions will get you set up to develop and upload the software to the device.
