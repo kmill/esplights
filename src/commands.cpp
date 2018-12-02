@@ -313,9 +313,9 @@ public:
   FireTask(size_t rows, float decay, float heat, float loss, float keep, float fps)
     : LightTask("fire", fps)
   {
-    width = seg->length();
+    width = 2+seg->length();
     this->rows = rows;
-    fire = new uint8_t[(width+2)*rows];
+    fire = new uint8_t[width*rows]();
 
     _decay = static_cast<unsigned int>(decay * 256);
     _heat = static_cast<unsigned int>(heat * 256);
@@ -326,14 +326,14 @@ public:
     delete[] fire;
   }
   void update() override {
-    for (size_t j = 1; j <= width; j++) {
+    for (size_t j = 1; j < width-1; j++) {
       fire[width*(rows-1) + j] = fire[width*(rows-1) + j] * _decay / 256;
       if (static_cast<unsigned int>(random(256)) <= _heat) {
         fire[width*(rows-1) + j] = 100+random(256-100);
       }
     }
     for (size_t i = 0; i+1 < rows; i++) {
-      for (size_t j = 1; j <= width; j++) {
+      for (size_t j = 1; j < width-1; j++) {
         unsigned int sum = 0;
         sum += fire[width*(i+1) + j-1];
         sum += fire[width*(i+1) + j];
@@ -346,7 +346,7 @@ public:
         fire[width*i + j] = sum / _loss;
       }
     }
-    for (size_t j = 1; j <= width; j++) {
+    for (size_t j = 1; j < width-1; j++) {
       seg->set(j-1, palette(fire[j]));
     }
     seg->send();
@@ -402,6 +402,74 @@ static int cmd_fire(int argc, char **argv) {
   return 0;
 }
 
+class TwfireTask : public LightTask {
+public:
+  TwfireTask()
+    : LightTask("twfire")
+  {
+    width = seg->length();
+    rows = 10;
+    upspeed = 4*256;
+    downspeed = 2*256;
+    keep = static_cast<int>(256*0.8);
+
+    fire = new uint16_t[(width+2)*3*rows]();
+  }
+  ~TwfireTask() {
+    delete[] fire;
+  }
+  void update() override {
+    uint16_t r = random(100) + random(100) + random(100);
+    if (r < 120) {
+      uint16_t i = random(3*width);
+      pos(0, i) = 65535;
+    }
+    for (size_t j = 0; j < 3*width; j++) {
+      uint16_t &target = pos(0, j);
+      uint16_t &current = pos(1, j);
+      if (current < target) {
+        current = iclamp(static_cast<int>(current) + upspeed, 0, target);
+      } else {
+        current = target = iclamp(static_cast<int>(current) - downspeed, 0, 65535);
+      }
+    }
+    for (size_t i = 2; i < rows; i++) {
+      for (size_t j = 0; j < 3*width; j++) {
+        unsigned int sum = 0;
+        sum += pos(i-1, j-3);
+        sum += pos(i-1, j);
+        sum += pos(i-1, j+3);
+        sum += pos(i-2, j);
+        sum *= (256-keep);
+        sum += 4*keep*pos(i,j);
+        pos(i, j) = iclamp(sum / (4*256), 0, 65535);
+      }
+    }
+    for (size_t j = 0; j < width; j++) {
+      seg->set(j, RgbColor{
+          static_cast<uint8_t>(pos(rows-1,3*j)/256),
+            static_cast<uint8_t>(pos(rows-1,3*j+1)/256),
+            static_cast<uint8_t>(pos(rows-1,3*j+2)/256)});
+    }
+    seg->send();
+  }
+protected:
+  inline uint16_t& pos(int row, int col) {
+    return fire[3*(width+2)*row + 3 + col];
+  }
+private:
+  size_t width;
+  size_t rows;
+  uint16_t *fire;
+  int upspeed;
+  int downspeed;
+  int keep;
+};
+int cmd_twfire(int argc, char **argv) {
+  new TwfireTask();
+  return 0;
+}
+
 void initialize_commands() {
   add_command("print_args", cmd_print_args);
   add_command("tasks", cmd_tasks);
@@ -416,4 +484,5 @@ void initialize_commands() {
   add_command("rainbow", cmd_rainbow);
   add_command("twinkle", cmd_twinkle);
   add_command("fire", cmd_fire);
+  add_command("twfire", cmd_twfire);
 }
